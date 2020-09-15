@@ -162,6 +162,8 @@ Usage:
 
 Flags:
       --chromium-version string            specify the version of Chromium you want (e.g. 69.0.3497.100) to pin to. if not specified, the latest stable version of Chromium is used.
+      --ungoogled-chromium-version string  specify the version ungoogled-chromium you want (e.g. 69.0.3497.100) to pin to. if not specified, the latest stable version of ungoogled-chromium is used.
+      --use-ungoogled-chromium             replaces Chromium build by ungoogled-chromium build
   -d, --device string                      device you want to build for (e.g. crosshatch): to list supported devices use '-d list'
   -e, --email string                       email address you want to use for build notifications
       --encrypted-keys                     an advanced option that allows signing keys to be stored with symmetric gpg encryption and decrypted into memory during the build process. this option requires manual intervention during builds where you will be sent a notification and need to provide the key required for decryption over SSH to continue the build process. important: if you have an existing stack - please see the FAQ for how to migrate your keys
@@ -319,6 +321,9 @@ It's also possible to add remotes and projects to the AOSP build manifest file. 
 It is possible to change the boot animation using patches, there is an example repo [here](https://github.com/RattlesnakeOS/example_patch_shellscript).
 #### Can I add microG to the build?
 I don't recommend installing microG as it requires you to enable signature spoofing. By enabling signature spoofing, this is a global change to the OS even though it has to be requested by each application as a permission. Just having the possibility for an application to request this ability reduces security of your OS. Having said all that, if you are fine with the security implications of doing so - it is possible to install microG using the custom patches and prebuilts features. See the [microG community supported repo](https://github.com/RattlesnakeOS/microg) for details on how to do this.
+
+#### Can I opt-out of using chromium?
+You may wish to exclude chromium from your build because of the privacy implications of chromium [contacting google services](https://github.com/prism-break/prism-break/issues/169). Passing the cli parameter `--include-chromium` as `false` or setting `include-chromium` to `false` in your config will cause the build to avoid compiling or including chromium webview or browser. Instead, AOSP webview and browser will be used.
 
 ### Security
 #### How secure is this?

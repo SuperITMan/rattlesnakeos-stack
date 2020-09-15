@@ -152,12 +152,20 @@ RATTLESNAKEOS_LATEST_JSON="https://raw.githubusercontent.com/RattlesnakeOS/lates
 RATTLESNAKEOS_LATEST_JSON_AOSP="${RATTLESNAKEOS_LATEST_JSON}/aosp.json"
 RATTLESNAKEOS_LATEST_JSON_CHROMIUM="${RATTLESNAKEOS_LATEST_JSON}/chromium.json"
 RATTLESNAKEOS_LATEST_JSON_FDROID="${RATTLESNAKEOS_LATEST_JSON}/fdroid.json"
+UNGOOGLED_CHROMIUM_CHANGELOG="https://raw.githubusercontent.com/ungoogled-software/ungoogled-chromium-android/master/CHANGELOG.md"
 
 STACK_UPDATE_MESSAGE=
 LATEST_STACK_VERSION=
 LATEST_CHROMIUM=
+LATEST_UNGOOGLED_CHROMIUM=
 FDROID_CLIENT_VERSION=
 FDROID_PRIV_EXT_VERSION=
+
+USE_UNGOOGLED_CHROMIUM="<% .UseUngoogledChromium %>"
+use_ungoogled_chromium() {
+  return $USE_UNGOOGLED_CHROMIUM == "true"
+}
+
 get_latest_versions() {
   log_header ${FUNCNAME}
 
@@ -174,13 +182,19 @@ get_latest_versions() {
     STACK_UPDATE_MESSAGE="WARNING: you should upgrade to the latest version: ${LATEST_STACK_VERSION}"
   fi
 
-  # check for latest chromium version
-  LATEST_CHROMIUM=$(curl --fail -s "${RATTLESNAKEOS_LATEST_JSON_CHROMIUM}" | jq -r ".$CHROME_CHANNEL")
-  if [ -z "$LATEST_CHROMIUM" ]; then
-    aws_notify_simple "ERROR: Unable to get latest Chromium version details. Stopping build."
-    exit 1
+  if [[ !use_ungoogled_chromium ]]; then
+    # check for latest chromium version
+    LATEST_CHROMIUM=$(curl --fail -s "${RATTLESNAKEOS_LATEST_JSON_CHROMIUM}" | jq -r ".$CHROME_CHANNEL")
+    if [ -z "$LATEST_CHROMIUM" ]; then
+      aws_notify_simple "ERROR: Unable to get latest Chromium version details. Stopping build."
+      exit 1
+    fi
+    echo "LATEST_CHROMIUM=${LATEST_CHROMIUM}"
+  else
+    # check for latest ungoogled-chromium version
+    LATEST_UNGOOGLED_CHROMIUM=$(curl --fail -s "${UNGOOGLED_CHROMIUM_CHANGELOG} | jq")
+    # TODO Continue here
   fi
-  echo "LATEST_CHROMIUM=${LATEST_CHROMIUM}"
 
   FDROID_CLIENT_VERSION=$(curl --fail -s "${RATTLESNAKEOS_LATEST_JSON_FDROID}" | jq -r ".client")
   if [ -z "$FDROID_CLIENT_VERSION" ]; then
@@ -554,6 +568,89 @@ EOF
   log "Building chromium system_webview_apk target"
   autoninja -C out/Default/ system_webview_apk
   
+  # upload to s3 for future builds
+  aws s3 cp "out/Default/apks/SystemWebView.apk" "s3://${AWS_RELEASE_BUCKET}/chromium/SystemWebView.apk"
+  aws s3 cp "out/Default/apks/ChromeModernPublic.apk" "s3://${AWS_RELEASE_BUCKET}/chromium/ChromeModernPublic.apk"
+  echo "${CHROMIUM_REVISION}" | aws s3 cp - "s3://${AWS_RELEASE_BUCKET}/chromium/revision"
+}
+
+check_ungoogled_chromium() {
+  log_header ${FUNCNAME}
+
+  current=$(aws s3 cp "s3://${AWS_RELEASE_BUCKET}/ungoogled-chromium/revision" - || true)
+  log "Ungoogled-Chromium current: $current"
+
+  log "Ungoogled-Chromium latest: $LATEST_CHROMIUM"
+  if [ "$LATEST_CHROMIUM" == "$current" ]; then
+    log "Chromium latest ($LATEST_CHROMIUM) matches current ($current)"
+  else
+    log "Building chromium $LATEST_CHROMIUM"
+    build_chromium $LATEST_CHROMIUM
+  fi
+  rm -rf $HOME/chromium
+}
+
+build_ungoogled_chromium() {
+  log_header ${FUNCNAME}
+
+  CHROMIUM_REVISION=$1
+  DEFAULT_VERSION=$(echo $CHROMIUM_REVISION | awk -F"." '{ printf "%s%03d52\n",$3,$4}')
+
+  # depot tools setup
+  if [ ! -d "$HOME/depot_tools" ]; then
+    retry git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git $HOME/depot_tools
+  fi
+  export PATH="$PATH:$HOME/depot_tools"
+
+  # fetch chromium
+  mkdir -p $HOME/chromium
+  cd $HOME/chromium
+  fetch --nohooks android
+  cd src
+
+  # checkout specific revision
+  git checkout "$CHROMIUM_REVISION" -f
+
+  # install dependencies
+  echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | sudo debconf-set-selections
+  log "Installing chromium build dependencies"
+  sudo ./build/install-build-deps-android.sh
+
+  # run gclient sync (runhooks will run as part of this)
+  log "Running gclient sync (this takes a while)"
+  for i in {1..5}; do
+    yes | gclient sync --with_branch_heads --jobs 32 -RDf && break
+  done
+
+  # cleanup any files in tree not part of this revision
+  git clean -dff
+
+  # reset any modifications
+  git checkout -- .
+
+  # generate configuration
+  mkdir -p out/Default
+  cat <<EOF > out/Default/args.gn
+target_os = "android"
+target_cpu = "arm64"
+is_debug = false
+is_official_build = true
+is_component_build = false
+symbol_level = 1
+ffmpeg_branding = "Chrome"
+proprietary_codecs = true
+android_channel = "stable"
+android_default_version_name = "$CHROMIUM_REVISION"
+android_default_version_code = "$DEFAULT_VERSION"
+EOF
+  gn gen out/Default
+
+  log "Building chromium chrome_modern_public_apk target"
+  autoninja -C out/Default/ chrome_modern_public_apk
+
+  log "Building chromium system_webview_apk target"
+  autoninja -C out/Default/ system_webview_apk
+
   # upload to s3 for future builds
   aws s3 cp "out/Default/apks/SystemWebView.apk" "s3://${AWS_RELEASE_BUCKET}/chromium/SystemWebView.apk"
   aws s3 cp "out/Default/apks/ChromeModernPublic.apk" "s3://${AWS_RELEASE_BUCKET}/chromium/ChromeModernPublic.apk"

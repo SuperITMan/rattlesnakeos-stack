@@ -19,8 +19,8 @@ const defaultInstanceRegions = "us-west-2,us-west-1,us-east-2"
 const minimumChromiumVersion = 80
 
 var name, region, email, device, sshKey, maxPrice, skipPrice, schedule string
-var instanceType, instanceRegions, hostsFile, chromiumVersion string
-var preventShutdown, ignoreVersionChecks, encryptedKeys, saveConfig bool
+var instanceType, instanceRegions, hostsFile, chromiumVersion, ungoogledChromiumVersion string
+var preventShutdown, ignoreVersionChecks, encryptedKeys, saveConfig, useUngoogledChromium bool
 var patches = &stack.CustomPatches{}
 var scripts = &stack.CustomScripts{}
 var prebuilts = &stack.CustomPrebuilts{}
@@ -119,6 +119,14 @@ func init() {
 
 	flags.BoolVar(&preventShutdown, "prevent-shutdown", false,
 		"for debugging purposes only - will prevent ec2 instance from shutting down after build.")
+
+	flags.StringVar(&ungoogledChromiumVersion, "ungoogled-chromium-version", "",
+        "specify the version of ungoogled-chromium you want (e.g. 80.0.3971.4) to pin to. if not specified, the latest stable "+
+            "version of ungoogled-chromium is used.")
+    viper.BindPFlag("ungoogled-chromium-version", flags.Lookup("ungoogled-chromium-version"))
+
+    flags.BoolVar(&useUngoogledChromium, "use-ungoogled-chromium", false, "replaces Chromium build by ungoogled-chromium build")
+    viper.BindPFlag("use-ungoogled-chromium", flags.Lookup("use-ungoogled-chromium"))
 }
 
 var deployCmd = &cobra.Command{
@@ -217,27 +225,29 @@ var deployCmd = &cobra.Command{
 		}
 
 		s, err := stack.NewAWSStack(&stack.AWSStackConfig{
-			Name:                   viper.GetString("name"),
-			Region:                 viper.GetString("region"),
-			Device:                 viper.GetString("device"),
-			Email:                  viper.GetString("email"),
-			InstanceType:           viper.GetString("instance-type"),
-			InstanceRegions:        viper.GetString("instance-regions"),
-			SSHKey:                 viper.GetString("ssh-key"),
-			SkipPrice:              viper.GetString("skip-price"),
-			MaxPrice:               viper.GetString("max-price"),
-			Schedule:               viper.GetString("schedule"),
-			ChromiumVersion:        viper.GetString("chromium-version"),
-			HostsFile:              viper.GetString("hosts-file"),
-			EncryptedKeys:          viper.GetBool("encrypted-keys"),
-			IgnoreVersionChecks:    viper.GetBool("ignore-version-checks"),
-			CustomPatches:          patches,
-			CustomScripts:          scripts,
-			CustomPrebuilts:        prebuilts,
-			CustomManifestRemotes:  manifestRemotes,
-			CustomManifestProjects: manifestProjects,
-			PreventShutdown:        preventShutdown,
-			Version:                version,
+			Name:                     viper.GetString("name"),
+			Region:                   viper.GetString("region"),
+			Device:                   viper.GetString("device"),
+			Email:                    viper.GetString("email"),
+			InstanceType:             viper.GetString("instance-type"),
+			InstanceRegions:          viper.GetString("instance-regions"),
+			SSHKey:                   viper.GetString("ssh-key"),
+			SkipPrice:                viper.GetString("skip-price"),
+			MaxPrice:                 viper.GetString("max-price"),
+			Schedule:                 viper.GetString("schedule"),
+			ChromiumVersion:          viper.GetString("chromium-version"),
+			HostsFile:                viper.GetString("hosts-file"),
+			EncryptedKeys:            viper.GetBool("encrypted-keys"),
+			IgnoreVersionChecks:      viper.GetBool("ignore-version-checks"),
+			UngoogledChromiumVersion: viper.GetString("ungoogled-chromium-version"),
+			UseUngoogledChromium:     viper.GetBool("use-ungoogled-chromium"),
+			CustomPatches:            patches,
+			CustomScripts:            scripts,
+			CustomPrebuilts:          prebuilts,
+			CustomManifestRemotes:    manifestRemotes,
+			CustomManifestProjects:   manifestProjects,
+			PreventShutdown:          preventShutdown,
+			Version:                  version,
 		})
 		if err != nil {
 			log.Fatal(err)
